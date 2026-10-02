@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/Cupidzp/tinyproxy-alpine/main/insta
 wget -qO- https://raw.githubusercontent.com/Cupidzp/tinyproxy-alpine/main/install.sh | sh
 ```
 
-脚本会交互询问 TCP 端口、BasicAuth 用户名和密码。默认端口为 `12345`，默认用户名为 `admin`。密码默认生成 32 位随机值，也可选择自定义输入；自定义密码需输入两次且不会回显，长度为 8-128 位，仅支持字母、数字及 `._!@%+=:,~-`。随机密码会在部署成功后显示一次。需要先在云安全组或防火墙放行所选 TCP 端口，脚本不会修改云平台规则。
+脚本会交互询问 TCP 端口、BasicAuth 用户名和密码。默认端口为 `12345`，默认用户名为 `admin`。密码默认生成 32 位随机值，也可选择自定义输入；自定义密码需输入两次且不会回显，长度为 8-128 位，仅支持字母、数字及 `._!@%+=:,~-`。部署成功后会显示 HTTP 代理链接模板 `http://用户名:密码@<服务器IP或域名>:端口`，将占位地址替换为客户端可访问的服务器地址即可。例如：`http://admin:<密码>@192.168.1.1:12345`。链接中的密码会进行 URL 编码。需要先在云安全组或防火墙放行所选 TCP 端口，脚本不会修改云平台规则。
 
 ## 功能
 
@@ -29,7 +29,7 @@ wget -qO- https://raw.githubusercontent.com/Cupidzp/tinyproxy-alpine/main/instal
 
 ## 安全说明
 
-该配置会把代理开放给公网访问，认证密码以明文保存在 `/etc/tinyproxy/tinyproxy.conf`，HTTP 代理认证也可能在客户端到代理服务器这一段以明文传输。请使用至少 16 位的唯一随机密码，并仅通过可信网络连接代理。不要把真实密码提交到 GitHub。
+该配置会把代理开放给公网访问，认证密码以明文保存在 `/etc/tinyproxy/tinyproxy.conf`，HTTP 代理认证也可能在客户端到代理服务器这一段以明文传输。代理链接本身包含认证信息，请妥善保存，不要公开或提交到 GitHub。请使用至少 16 位的唯一随机密码，并仅通过可信网络连接代理。
 
 重复运行脚本可以更改端口或凭据。若已有配置，成功更新后旧配置备份会保留在 `/root/tinyproxy-backup.*`。
 

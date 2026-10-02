@@ -191,17 +191,32 @@ prompt_password() {
     fi
 }
 
+encode_url_password() {
+    URL_PASSWORD=
+    URL_REST=$PASSWORD
+    while [ -n "$URL_REST" ]; do
+        URL_CHAR=${URL_REST%"${URL_REST#?}"}
+        URL_REST=${URL_REST#?}
+        case "$URL_CHAR" in
+            [A-Za-z0-9._~-]) URL_PASSWORD=${URL_PASSWORD}${URL_CHAR} ;;
+            '!') URL_PASSWORD=${URL_PASSWORD}%21 ;;
+            '@') URL_PASSWORD=${URL_PASSWORD}%40 ;;
+            '%') URL_PASSWORD=${URL_PASSWORD}%25 ;;
+            '+') URL_PASSWORD=${URL_PASSWORD}%2B ;;
+            '=') URL_PASSWORD=${URL_PASSWORD}%3D ;;
+            ':') URL_PASSWORD=${URL_PASSWORD}%3A ;;
+            ',') URL_PASSWORD=${URL_PASSWORD}%2C ;;
+        esac
+    done
+}
+
 service_is_enabled() {
-    rc-update show default 2>/dev/null | awk -v service="$SERVICE_NAME" \
-        '$1 == service || $2 == service { found=1 } END { exit !found }'
+    rc-update show default 2>/dev/null | \
+        grep -E -q "(^|[[:space:]])${SERVICE_NAME}([[:space:]]|$)"
 }
 
 port_is_listening() {
-    ss -ltn 2>/dev/null | awk -v suffix=":$PORT" '
-        $1 == "LISTEN" && length($4) >= length(suffix) && \
-            substr($4, length($4) - length(suffix) + 1) == suffix { found=1 }
-        END { exit !found }
-    '
+    ss -ltn 2>/dev/null | grep -E -q "LISTEN[[:space:]].*:${PORT}[[:space:]]"
 }
 
 verify_listener() {
@@ -286,22 +301,24 @@ main() {
     fi
 
     TRANSACTION_STARTED=1
-    if [ "$SERVICE_WAS_ACTIVE" -eq 1 ]; then
-        rc-service "$SERVICE_NAME" stop || die "无法停止现有 Tinyproxy 服务。"
-    fi
-
-    if port_is_listening; then
+    if [ "$SERVICE_WAS_ACTIVE" -eq 0 ] && port_is_listening; then
         die "TCP 端口 $PORT 已被其他进程占用。"
     fi
 
     write_config
     SERVICE_START_ATTEMPTED=1
-    rc-service "$SERVICE_NAME" start || die "Tinyproxy 启动失败。"
+    if [ "$SERVICE_WAS_ACTIVE" -eq 1 ]; then
+        rc-service "$SERVICE_NAME" restart || die "Tinyproxy 重启失败。"
+    else
+        rc-service "$SERVICE_NAME" start || die "Tinyproxy 启动失败。"
+    fi
     verify_listener || die "没有检测到 TCP 端口 $PORT 正在监听。"
     rc-service "$SERVICE_NAME" status || die "Tinyproxy 启动后状态异常。"
 
-    SERVICE_ENABLE_ATTEMPTED=1
-    rc-update add "$SERVICE_NAME" default || die "设置 Tinyproxy 开机自启失败。"
+    if [ "$SERVICE_WAS_ENABLED" -eq 0 ]; then
+        SERVICE_ENABLE_ATTEMPTED=1
+        rc-update add "$SERVICE_NAME" default || die "设置 Tinyproxy 开机自启失败。"
+    fi
 
     printf '\nTinyproxy 部署完成\n'
     printf '监听端口：%s/TCP\n' "$PORT"
@@ -309,9 +326,9 @@ main() {
     printf '配置文件：%s\n' "$CONFIG_FILE"
     printf '开机自启：已启用\n'
     printf 'IPv6：%s\n' "$([ "$IPV6_ENABLED" -eq 1 ] && printf 已启用 || printf 未启用)"
-    if [ "$PASSWORD_MODE" = random ]; then
-        printf '随机生成的密码（请立即保存）：%s\n' "$PASSWORD"
-    fi
+    encode_url_password
+    printf 'HTTP 代理链接模板：http://%s:%s@<服务器IP或域名>:%s\n' \
+        "$USERNAME" "$URL_PASSWORD" "$PORT"
     printf '\n状态检查：rc-service tinyproxy status\n'
     printf '监听检查：ss -ltnp | grep ":%s"\n' "$PORT"
     printf '请在云安全组/防火墙放行 TCP %s。\n' "$PORT"
