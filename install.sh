@@ -15,6 +15,7 @@ TMP_CONFIG=
 PORT=12345
 USERNAME='admin'
 PASSWORD=
+PASSWORD_MODE=
 IPV6_ENABLED=0
 OLD_CONFIG_EXISTS=0
 SERVICE_WAS_ACTIVE=0
@@ -141,28 +142,51 @@ prompt_settings() {
         USERNAME='admin'
     done
 
+    prompt_password
+}
+
+prompt_password() {
     while :; do
-        read_secret 'BasicAuth 密码（至少 8 位，输入隐藏）: '
-        PASSWORD=$REPLY
-        if [ "${#PASSWORD}" -lt 8 ] || [ "${#PASSWORD}" -gt 128 ]; then
-            warn "密码长度必须在 8-128 个字符之间。"
-            continue
-        fi
-        case "$PASSWORD" in
-            *[!A-Za-z0-9._!@%+=:,~-]*)
-                warn "密码仅可使用字母、数字及 . _ ! @ % + = : , ~ -。"
-                continue
+        printf '密码方式：1) 随机生成 2) 自定义输入 [1]: '
+        read_line
+        case "$REPLY" in
+            ''|1)
+                PASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
+                [ "${#PASSWORD}" -eq 32 ] || die "无法生成随机密码。"
+                PASSWORD_MODE=random
+                break
+                ;;
+            2)
+                PASSWORD_MODE=custom
+                while :; do
+                    read_secret 'BasicAuth 密码（8-128 位，输入隐藏）: '
+                    PASSWORD=$REPLY
+                    if [ "${#PASSWORD}" -lt 8 ] || [ "${#PASSWORD}" -gt 128 ]; then
+                        warn "密码长度必须在 8-128 个字符之间。"
+                        continue
+                    fi
+                    case "$PASSWORD" in
+                        *[!A-Za-z0-9._!@%+=:,~-]*)
+                            warn "密码仅可使用字母、数字及 . _ ! @ % + = : , ~ -。"
+                            continue
+                            ;;
+                    esac
+
+                    read_secret '再次输入密码确认: '
+                    if [ "$PASSWORD" = "$REPLY" ]; then
+                        break
+                    fi
+                    warn "两次输入不一致，请重试。"
+                done
+                break
+                ;;
+            *)
+                warn "请输入 1 或 2。"
                 ;;
         esac
-
-        read_secret '再次输入密码确认: '
-        if [ "$PASSWORD" = "$REPLY" ]; then
-            break
-        fi
-        warn "两次输入不一致，请重试。"
     done
 
-    if [ "${#PASSWORD}" -lt 12 ]; then
+    if [ "$PASSWORD_MODE" = custom ] && [ "${#PASSWORD}" -lt 12 ]; then
         warn "短密码更容易被猜中；公网代理建议使用至少 16 位随机密码。"
     fi
 }
@@ -173,8 +197,26 @@ service_is_enabled() {
 }
 
 port_is_listening() {
-    ss -ltn 2>/dev/null | awk -v port=":$PORT" \
-        '$1 == "LISTEN" && $4 ~ (port "$" ) { found=1 } END { exit !found }'
+    ss -ltn 2>/dev/null | awk -v suffix=":$PORT" '
+        $1 == "LISTEN" && length($4) >= length(suffix) && \
+            substr($4, length($4) - length(suffix) + 1) == suffix { found=1 }
+        END { exit !found }
+    '
+}
+
+verify_listener() {
+    attempts=0
+    while [ "$attempts" -lt 15 ]; do
+        if port_is_listening; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+
+    warn "等待 TCP 端口 $PORT 超时；当前监听状态："
+    ss -ltnp 2>&1 || true
+    return 1
 }
 
 check_config_path() {
@@ -255,8 +297,8 @@ main() {
     write_config
     SERVICE_START_ATTEMPTED=1
     rc-service "$SERVICE_NAME" start || die "Tinyproxy 启动失败。"
+    verify_listener || die "没有检测到 TCP 端口 $PORT 正在监听。"
     rc-service "$SERVICE_NAME" status || die "Tinyproxy 启动后状态异常。"
-    port_is_listening || die "没有检测到 TCP 端口 $PORT 正在监听。"
 
     SERVICE_ENABLE_ATTEMPTED=1
     rc-update add "$SERVICE_NAME" default || die "设置 Tinyproxy 开机自启失败。"
@@ -267,6 +309,9 @@ main() {
     printf '配置文件：%s\n' "$CONFIG_FILE"
     printf '开机自启：已启用\n'
     printf 'IPv6：%s\n' "$([ "$IPV6_ENABLED" -eq 1 ] && printf 已启用 || printf 未启用)"
+    if [ "$PASSWORD_MODE" = random ]; then
+        printf '随机生成的密码（请立即保存）：%s\n' "$PASSWORD"
+    fi
     printf '\n状态检查：rc-service tinyproxy status\n'
     printf '监听检查：ss -ltnp | grep ":%s"\n' "$PORT"
     printf '请在云安全组/防火墙放行 TCP %s。\n' "$PORT"

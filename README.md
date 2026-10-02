@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/Cupidzp/tinyproxy-alpine/main/insta
 wget -qO- https://raw.githubusercontent.com/Cupidzp/tinyproxy-alpine/main/install.sh | sh
 ```
 
-脚本会交互询问 TCP 端口、BasicAuth 用户名和密码。默认端口为 `12345`，默认用户名为 `admin`；密码需输入两次且不会回显，长度为 8-128 位，仅支持字母、数字及 `._!@%+=:,~-`。需要先在云安全组或防火墙放行所选 TCP 端口，脚本不会修改云平台规则。
+脚本会交互询问 TCP 端口、BasicAuth 用户名和密码。默认端口为 `12345`，默认用户名为 `admin`。密码默认生成 32 位随机值，也可选择自定义输入；自定义密码需输入两次且不会回显，长度为 8-128 位，仅支持字母、数字及 `._!@%+=:,~-`。随机密码会在部署成功后显示一次。需要先在云安全组或防火墙放行所选 TCP 端口，脚本不会修改云平台规则。
 
 ## 功能
 
